@@ -151,6 +151,15 @@ class TradingApp(tk.Tk):
             self.strategy_progress_tree.column(col, width=width, anchor=tk.W)
         self.strategy_progress_tree.pack(fill=tk.BOTH, expand=True)
 
+        # --- RESTAURADO: Panel de Indicadores en Vivo ---
+        self.indicators_frame = ttk.LabelFrame(right_column, text="Indicadores en Vivo (Estrategia Activa)",
+                                               padding="10")
+        self.indicators_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        # Las columnas se poblarán dinámicamente
+        self.indicators_tree = ttk.Treeview(self.indicators_frame, columns=(), show='headings')
+        self.indicators_tree.pack(fill=tk.BOTH, expand=True)
+
+
         # --- NUEVO: Barra de Progreso de Scalping Dedicada ---
         self.scalping_progress_frame = ttk.LabelFrame(left_column, text="Progreso de Recolección de Datos (Scalping)",
                                                       padding="10")
@@ -189,7 +198,44 @@ class TradingApp(tk.Tk):
         self.portfolio_tree.heading('Monto Trade', text='Monto por Trade (USDT)')
         self.portfolio_tree.pack(fill=tk.BOTH, expand=True, pady=5)
 
+        # --- NUEVO: Paneles de Configuración de Estrategias ---
+        strategy_settings_frame = ttk.Frame(settings_tab)
+        strategy_settings_frame.pack(fill=tk.X, pady=10)
+
+        # Frame para Mediano Plazo
+        mt_frame = ttk.LabelFrame(strategy_settings_frame, text="Parámetros Estrategia Mediano Plazo", padding="10")
+        mt_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, anchor=tk.N)
+
+        self.mt_params = {}
+        mt_param_list = [
+            'context_tf', 'ema_slow_period', 'ema_fast_period', 'setup_tf', 'ema_pullback_period',
+            'trigger_tf', 'rsi_period', 'rsi_oversold', 'rsi_overbought'
+        ]
+        for param in mt_param_list:
+            row = ttk.Frame(mt_frame)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Label(row, text=f"{param}:", width=20).pack(side=tk.LEFT)
+            var = tk.StringVar()
+            ttk.Entry(row, textvariable=var, width=15).pack(side=tk.LEFT)
+            self.mt_params[param] = var
+
+        # Frame para Scalping
+        sc_frame = ttk.LabelFrame(strategy_settings_frame, text="Parámetros Estrategia Scalping", padding="10")
+        sc_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, anchor=tk.N)
+
+        self.sc_params = {}
+        sc_param_list = ['bias_tf', 'vwap_bias_ema_period', 'setup_tf', 'trigger_tf', 'momentum_ticks']
+        for param in sc_param_list:
+            row = ttk.Frame(sc_frame)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Label(row, text=f"{param}:", width=20).pack(side=tk.LEFT)
+            var = tk.StringVar()
+            ttk.Entry(row, textvariable=var, width=15).pack(side=tk.LEFT)
+            self.sc_params[param] = var
+
         ttk.Button(settings_tab, text="Guardar Cambios en config.ini", command=self.save_settings).pack(pady=10)
+        ttk.Label(settings_tab, text="Nota: El bot debe ser reiniciado para que los cambios de estrategia surtan efecto.",
+                  font=("Helvetica", 9, "italic")).pack(pady=5)
 
     def _create_backtesting_tab(self):
         backtesting_tab = ttk.Frame(self.notebook, padding="10")
@@ -397,6 +443,8 @@ class TradingApp(tk.Tk):
                                         "Los datos históricos están al día.\nPaso 3: Inicia el Bot.")
                 elif msg_type == 'positions_update':
                     self.update_portfolio_display(data)
+                elif msg_type == 'indicator_update':
+                    self.update_indicators_display(data['symbol'], data['indicators'])
                 elif msg_type == 'strategy_update':
                     self.update_strategy_progress_display(data)
                 elif msg_type == 'new_price':
@@ -421,6 +469,31 @@ class TradingApp(tk.Tk):
             self.strategy_progress_tree.item(item_id, values=values)
         else:
             self.strategy_progress_tree.insert('', 'end', iid=item_id, values=values)
+
+    def update_indicators_display(self, symbol: str, indicators: dict):
+        """Actualiza dinámicamente el treeview de indicadores."""
+        # --- Configuración dinámica de columnas ---
+        current_cols = self.indicators_tree['columns']
+        # Ordenar indicadores alfabéticamente para consistencia
+        new_cols = ['Símbolo'] + sorted(list(indicators.keys()))
+
+        if tuple(current_cols) != tuple(new_cols):
+            self.indicators_tree['columns'] = new_cols
+            for col in new_cols:
+                self.indicators_tree.heading(col, text=col)
+                self.indicators_tree.column(col, width=100, anchor=tk.W)
+
+        # --- Actualización de valores ---
+        item_id = f"indicator_{symbol}"
+
+        # Formatear valores a 4 decimales si son flotantes
+        values = [symbol] + [f"{indicators.get(k, 'N/A'):.4f}" if isinstance(indicators.get(k), float) else indicators.get(k, 'N/A')
+                             for k in new_cols[1:]]
+
+        if self.indicators_tree.exists(item_id):
+            self.indicators_tree.item(item_id, values=values)
+        else:
+            self.indicators_tree.insert('', 'end', iid=item_id, values=values)
 
     def update_live_prices_ticker(self, symbol, price):
         item_id = f"price_{symbol}"
@@ -464,6 +537,15 @@ class TradingApp(tk.Tk):
                 self.portfolio_tree.insert('', 'end',
                                            values=(symbol.upper(), f"{float(amount):.2f}" if amount else "0.00"))
 
+        # Cargar parámetros de estrategia
+        if self.config.has_section('strategy_medium_term'):
+            for param, var in self.mt_params.items():
+                var.set(self.config.get('strategy_medium_term', param, fallback=''))
+
+        if self.config.has_section('strategy_scalping'):
+            for param, var in self.sc_params.items():
+                var.set(self.config.get('strategy_scalping', param, fallback=''))
+
     def add_update_coin(self):
         symbol = self.new_coin_entry.get().strip().upper()
         amount_str = self.new_amount_entry.get().strip()
@@ -490,11 +572,20 @@ class TradingApp(tk.Tk):
     def save_settings(self):
         try:
             self.config.set('position_sizing', 'max_open_positions', self.max_pos_var.get())
+
+            # Guardar portfolio
             self.config.remove_section('portfolio')
             self.config.add_section('portfolio')
             for row in self.portfolio_tree.get_children():
                 symbol, amount = self.portfolio_tree.item(row)['values']
                 self.config.set('portfolio', str(symbol).lower(), str(amount))
+
+            # Guardar parámetros de estrategias
+            for param, var in self.mt_params.items():
+                self.config.set('strategy_medium_term', param, var.get())
+            for param, var in self.sc_params.items():
+                self.config.set('strategy_scalping', param, var.get())
+
             with open('config.ini', 'w') as configfile:
                 self.config.write(configfile)
             messagebox.showinfo("Éxito", "La configuración ha sido guardada en config.ini.")

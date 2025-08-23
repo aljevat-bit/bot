@@ -92,6 +92,7 @@ class TradingEngine:
 
         # --- NUEVA LÓGICA DE HEARTBEAT ---
         heartbeat_counter = 0
+        logging.info("Iniciando bucle principal de eventos...")
 
         while self.is_running:
             try:
@@ -113,8 +114,8 @@ class TradingEngine:
                 # --- LÓGICA DE HEARTBEAT ---
                 # Si no hay mensajes por 1 segundo, incrementamos el contador
                 heartbeat_counter += 1
-                # Cada 30 segundos, enviamos un mensaje de "estoy vivo"
-                if heartbeat_counter % 30 == 0:
+                # Cada 10 segundos, enviamos un mensaje de "estoy vivo"
+                if heartbeat_counter % 10 == 0:
                     log_msg = "Motor en espera, escuchando eventos de mercado..."
                     logging.info(log_msg)
                     self.ui_queue.put({'type': 'log', 'data': log_msg})
@@ -140,6 +141,14 @@ class TradingEngine:
         df = self.db_manager.load_data(symbol, interval)
         self.market_states[symbol].update_data(interval, df)
         self.market_states[symbol].calculate_all_indicators(self.config)
+
+        # --- NUEVO: Enviar actualización de indicadores a la UI ---
+        latest_indicators = self.market_states[symbol].get_latest_indicators()
+        if latest_indicators:
+            self.ui_queue.put({'type': 'indicator_update', 'data': {
+                'symbol': symbol,
+                'indicators': latest_indicators
+            }})
 
         if self.bot_states[symbol] != 'IN_POSITION':
             open_positions = len([s for s in self.bot_states.values() if s == 'IN_POSITION'])

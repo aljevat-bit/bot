@@ -48,3 +48,16 @@ class MarketState:
                 self.indicators[interval]['VWAP'] = vwap
                 self.indicators[interval]['VWAP_BIAS_EMA'] = TechnicalAnalysis.ema(df['Close'], int(
                     sc_params['vwap_bias_ema_period']))
+
+    def get_latest_indicators(self) -> dict:
+        """
+        Recopila el último valor de cada indicador calculado a través de todos los intervalos.
+        Retorna un diccionario plano con claves como '1h_RSI', '15m_EMA_SLOW'.
+        """
+        latest_values = {}
+        for interval, indicators_dict in self.indicators.items():
+            for name, series in indicators_dict.items():
+                if not series.empty:
+                    key = f"{interval}_{name}"
+                    latest_values[key] = series.iloc[-1]
+        return latest_values
