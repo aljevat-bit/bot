@@ -139,15 +139,27 @@ class TradingApp(tk.Tk):
         for col in price_cols: self.prices_tree.heading(col, text=col)
         self.prices_tree.pack(fill=tk.X)
 
-        indicators_frame = ttk.LabelFrame(right_column, text="Indicadores en Vivo (Estrategia Activa)", padding="10")
-        indicators_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        # --- NUEVO: Panel de Progreso de Estrategia ---
+        strategy_progress_frame = ttk.LabelFrame(right_column, text="Progreso de Estrategias", padding="10")
+        strategy_progress_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        mt_params = self.config['strategy_medium_term']
-        ind_cols = ('Símbolo', f"SMA_{mt_params['sma_short_window']}", f"SMA_{mt_params['sma_long_window']}",
-                    f"RSI_{mt_params['rsi_window']}")
-        self.indicators_tree = ttk.Treeview(indicators_frame, columns=ind_cols, show='headings')
-        for col in ind_cols: self.indicators_tree.heading(col, text=col)
-        self.indicators_tree.pack(fill=tk.BOTH, expand=True)
+        prog_cols = ('Símbolo', 'Señal', 'Progreso (%)', 'Paso Actual')
+        self.strategy_progress_tree = ttk.Treeview(strategy_progress_frame, columns=prog_cols, show='headings', height=5)
+        for col in prog_cols:
+            self.strategy_progress_tree.heading(col, text=col)
+            width = 120 if col == 'Paso Actual' else 80
+            self.strategy_progress_tree.column(col, width=width, anchor=tk.W)
+        self.strategy_progress_tree.pack(fill=tk.BOTH, expand=True)
+
+        # --- NUEVO: Barra de Progreso de Scalping Dedicada ---
+        self.scalping_progress_frame = ttk.LabelFrame(left_column, text="Progreso de Recolección de Datos (Scalping)",
+                                                      padding="10")
+        # Se packea/despackea dinámicamente
+        self.scalping_progress_label = ttk.Label(self.scalping_progress_frame, text="Iniciando...",
+                                                 font=("Helvetica", 9))
+        self.scalping_progress_label.pack(side=tk.LEFT, padx=5)
+        self.scalping_progress_bar = ttk.Progressbar(self.scalping_progress_frame, length=200)
+        self.scalping_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
     def _create_settings_tab(self):
         settings_tab = ttk.Frame(self.notebook, padding="10")
@@ -311,6 +323,11 @@ class TradingApp(tk.Tk):
         self.aggressiveness_slider.config(state=tk.DISABLED)
         mode = self.trading_mode.get()
 
+        if mode == 'Scalping':
+            self.scalping_progress_frame.pack(fill=tk.X, pady=5, before=self.log_text.master)
+            self.scalping_progress_bar['value'] = 0
+            self.scalping_progress_label.config(text="Iniciando recolección de datos...")
+
         self.data_manager.start_streaming(self.command_queue, mode)
 
         aggressiveness_value = self.aggressiveness.get()
@@ -367,6 +384,12 @@ class TradingApp(tk.Tk):
                 elif msg_type == 'progress':
                     self.progress_bar['value'] = data.get('value', self.progress_bar['value'])
                     self.progress_label.config(text=data.get('text', ''))
+                elif msg_type == 'scalping_progress':
+                    if data.get('visible', True):
+                        self.scalping_progress_bar['value'] = data.get('value', 0)
+                        self.scalping_progress_label.config(text=data.get('text', ''))
+                    else:
+                        self.scalping_progress_frame.pack_forget()
                 elif msg_type == 'sync_complete':
                     self.start_button.config(state=tk.NORMAL)
                     self.progress_label.config(text="Sincronización completa.")
@@ -374,8 +397,8 @@ class TradingApp(tk.Tk):
                                         "Los datos históricos están al día.\nPaso 3: Inicia el Bot.")
                 elif msg_type == 'positions_update':
                     self.update_portfolio_display(data)
-                elif msg_type == 'indicator_update':
-                    self.update_indicators_display(data['symbol'], data['indicators'])
+                elif msg_type == 'strategy_update':
+                    self.update_strategy_progress_display(data)
                 elif msg_type == 'new_price':
                     self.update_live_prices_ticker(data['symbol'], data['price'])
                     self.update_portfolio_display()
@@ -384,9 +407,20 @@ class TradingApp(tk.Tk):
         finally:
             self.after(100, self.process_ui_queue)
 
-    def update_indicators_display(self, symbol, indicators):
-        # Esta función puede ser mejorada para mostrar dinámicamente SMA o EMA
-        pass
+    def update_strategy_progress_display(self, update_data: dict):
+        symbol = update_data['symbol']
+        item_id = f"progress_{symbol}"
+
+        signal = update_data['signal']
+        progress = update_data['progress']
+        reason = update_data['reason']
+
+        values = (symbol, signal, f"{progress}%", reason)
+
+        if self.strategy_progress_tree.exists(item_id):
+            self.strategy_progress_tree.item(item_id, values=values)
+        else:
+            self.strategy_progress_tree.insert('', 'end', iid=item_id, values=values)
 
     def update_live_prices_ticker(self, symbol, price):
         item_id = f"price_{symbol}"

@@ -72,6 +72,22 @@ class TradingEngine:
         logging.info(f"Motor de trading iniciando en modo '{self.trading_mode}'...")
         self.ui_queue.put({'type': 'status', 'data': f"En vivo ({self.trading_mode})..."})
 
+        if self.trading_mode == 'Scalping':
+            warmup_duration = 300  # 5 minutos
+            self.ui_queue.put({'type': 'log',
+                               'data': f"Iniciando fase de recolección de datos de alta frecuencia ({warmup_duration}s)..."})
+            for i in range(warmup_duration):
+                time.sleep(1)
+                progress = (i + 1) / warmup_duration * 100
+                remaining = warmup_duration - (i + 1)
+                self.ui_queue.put({'type': 'scalping_progress', 'data': {
+                    'value': progress,
+                    'text': f"Recolectando datos... Tiempo restante: {remaining}s"
+                }})
+            self.ui_queue.put(
+                {'type': 'log', 'data': "Fase de recolección de datos de alta frecuencia completada."})
+            self.ui_queue.put({'type': 'scalping_progress', 'data': {'visible': False}})
+
         self._initial_state_load()
 
         # --- NUEVA LÓGICA DE HEARTBEAT ---
@@ -153,14 +169,20 @@ class TradingEngine:
         log_prefix = f"[{symbol}]"
         self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} Analizando tras cierre de vela..."})
 
-        signal = self.strategy.next(self.market_states[symbol])
-        reason = self.strategy.get_analysis_reason()
+        signal, progress, reason = self.strategy.next(self.market_states[symbol])
 
-        self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} SEÑAL GENERADA: {signal}."})
-        self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} Razón: {reason}"})
+        # --- NUEVO: Enviar actualización de progreso de estrategia a la UI ---
+        self.ui_queue.put({'type': 'strategy_update', 'data': {
+            'symbol': symbol,
+            'signal': signal,
+            'progress': progress,
+            'reason': reason
+        }})
+
+        self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} SEÑAL: {signal} ({progress}%) - {reason}"})
 
         trade_amount = self.portfolio_config.get(symbol.upper())
-        if signal == 'BUY' and trade_amount and trade_amount > 0:
+        if signal in ['BUY', 'SELL'] and trade_amount and trade_amount > 0:
             current_price = self.live_prices.get(symbol)
             if current_price:
                 self.ui_queue.put(
