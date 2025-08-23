@@ -1,0 +1,6 @@
+    # requirements.txt
+pandas
+python-binance
+python-dotenv
+backtesting
+tkhtmlview
