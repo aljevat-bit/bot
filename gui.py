@@ -287,31 +287,28 @@ class TradingApp(tk.Tk):
             backtest_data_manager.populate_backtesting_data(symbol)
 
             self.ui_queue.put(
-                {'type': 'backtest_log', 'data': "\n--- SIMULANDO ESTRATEGIA DE MEDIANO PLAZO (en velas de 15m) ---\n"})
-            data_mt = backtest_db_manager.load_data(symbol, '15m')
-            if not data_mt.empty:
-                engine_mt = BacktestingEngine(self.config, data_mt, SMACrossRSIStrategy, 10000, 500,
-                                              self.aggressiveness.get())
+                {'type': 'backtest_log', 'data': "\n--- SIMULANDO ESTRATEGIA DE MEDIANO PLAZO ---\n"})
+            try:
+                engine_mt = BacktestingEngine(self.config, backtest_db_manager, symbol, MediumTermConfluenceStrategy, 10000, 500, self.aggressiveness.get())
                 report_mt = engine_mt.run()
                 report_str_mt = "\n".join([f"- {key}: {value}" for key, value in report_mt.items()])
-                self.ui_queue.put(
-                    {'type': 'backtest_log', 'data': f"REPORTE DE MEDIANO PLAZO (15m):\n{report_str_mt}\n"})
-            else:
-                self.ui_queue.put(
-                    {'type': 'backtest_log', 'data': "No se encontraron datos de 15m para la simulación.\n"})
+                self.ui_queue.put({'type': 'backtest_log', 'data': f"REPORTE DE MEDIANO PLAZO:\n{report_str_mt}\n"})
+            except Exception as e:
+                logging.error(f"Error en backtest de Mediano Plazo: {e}", exc_info=True)
+                self.ui_queue.put({'type': 'backtest_log', 'data': f"ERROR en backtest de Mediano Plazo: {e}\n"})
 
             self.ui_queue.put(
-                {'type': 'backtest_log', 'data': "\n--- SIMULANDO ESTRATEGIA DE SCALPING (agresividad máxima) ---\n"})
-            data_sc = backtest_db_manager.load_data(symbol, '1s')
-            if not data_sc.empty:
-                engine_sc = BacktestingEngine(self.config, data_sc, ScalpingStrategy, 10000, 100,
-                                              10)  # Agresividad 10, monto $100
+                {'type': 'backtest_log', 'data': "\n--- SIMULANDO ESTRATEGIA DE SCALPING ---\n"})
+            try:
+                # Nota: El backtesting de HFVWAPStrategy en datos de 1s puede ser muy lento y consumir mucha memoria.
+                # Se usa agresividad 10 y monto de 100 para el ejemplo.
+                engine_sc = BacktestingEngine(self.config, backtest_db_manager, symbol, HFVWAPStrategy, 10000, 100, 10)
                 report_sc = engine_sc.run()
                 report_str_sc = "\n".join([f"- {key}: {value}" for key, value in report_sc.items()])
-                self.ui_queue.put({'type': 'backtest_log', 'data': f"REPORTE DE SCALPING (1s):\n{report_str_sc}\n"})
-            else:
-                self.ui_queue.put(
-                    {'type': 'backtest_log', 'data': "No se encontraron datos de 1s para la simulación.\n"})
+                self.ui_queue.put({'type': 'backtest_log', 'data': f"REPORTE DE SCALPING:\n{report_str_sc}\n"})
+            except Exception as e:
+                logging.error(f"Error en backtest de Scalping: {e}", exc_info=True)
+                self.ui_queue.put({'type': 'backtest_log', 'data': f"ERROR en backtest de Scalping: {e}\n"})
 
             self.ui_queue.put({'type': 'backtest_log', 'data': "\n--- BACKTEST COMPLETADO ---\n"})
             backtest_db_manager.close()
@@ -378,8 +375,9 @@ class TradingApp(tk.Tk):
 
         aggressiveness_value = self.aggressiveness.get()
         self.trading_engine = TradingEngine(
-            self.config, self.db_manager, self.command_queue, self.ui_queue,
-            self.binance_client, aggressiveness=aggressiveness_value, trading_mode=mode
+            config=self.config, db_manager=self.db_manager, data_manager=self.data_manager,
+            command_queue=self.command_queue, ui_queue=self.ui_queue,
+            binance_client=self.binance_client, aggressiveness=aggressiveness_value, trading_mode=mode
         )
         self.backend_thread = threading.Thread(target=self.trading_engine.run, daemon=True)
         self.backend_thread.start()

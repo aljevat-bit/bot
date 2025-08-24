@@ -10,10 +10,11 @@ from market_state import MarketState
 
 
 class TradingEngine:
-    def __init__(self, config, db_manager, command_queue, ui_queue, binance_client, aggressiveness: int,
+    def __init__(self, config, db_manager, data_manager, command_queue, ui_queue, binance_client, aggressiveness: int,
                  trading_mode: str):
         self.config = config
         self.db_manager = db_manager
+        self.data_manager = data_manager
         self.command_queue = command_queue
         self.ui_queue = ui_queue
         self.binance_client = binance_client
@@ -72,20 +73,26 @@ class TradingEngine:
         logging.info(f"Motor de trading iniciando en modo '{self.trading_mode}'...")
         self.ui_queue.put({'type': 'status', 'data': f"En vivo ({self.trading_mode})..."})
 
-        if self.trading_mode == 'Scalping':
-            warmup_duration = 300  # 5 minutos
-            self.ui_queue.put({'type': 'log',
-                               'data': f"Iniciando fase de recolección de datos de alta frecuencia ({warmup_duration}s)..."})
-            for i in range(warmup_duration):
-                time.sleep(1)
-                progress = (i + 1) / warmup_duration * 100
-                remaining = warmup_duration - (i + 1)
+        if self.trading_mode == 'Scalping' and self.active_coins:
+            warmup_interval = '5s'
+            warmup_candle_target = 60  # 60 velas de 5s = 5 minutos de datos
+
+            log_msg = f"Iniciando fase de recolección de datos: se necesitan {warmup_candle_target} velas de {warmup_interval}."
+            self.ui_queue.put({'type': 'log', 'data': log_msg})
+
+            first_coin = self.active_coins[0]
+            current_candles = 0
+            while current_candles < warmup_candle_target:
+                time.sleep(1) # Esperar un poco para no saturar la CPU
+                current_candles = self.data_manager.get_live_candle_count(first_coin, warmup_interval)
+                progress = (current_candles / warmup_candle_target) * 100
+
                 self.ui_queue.put({'type': 'scalping_progress', 'data': {
                     'value': progress,
-                    'text': f"Recolectando datos... Tiempo restante: {remaining}s"
+                    'text': f"Recolectando velas de {warmup_interval}: {current_candles}/{warmup_candle_target}"
                 }})
-            self.ui_queue.put(
-                {'type': 'log', 'data': "Fase de recolección de datos de alta frecuencia completada."})
+
+            self.ui_queue.put({'type': 'log', 'data': "Fase de recolección de datos de alta frecuencia completada."})
             self.ui_queue.put({'type': 'scalping_progress', 'data': {'visible': False}})
 
         self._initial_state_load()

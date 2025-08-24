@@ -20,6 +20,7 @@ class DataManager:
         self.ui_queue = ui_queue
         self.twm = None
         self.command_queue = None
+        self.live_candle_counts = {} # NUEVO: Para contar velas en vivo
 
         # --- CORRECCIÓN: Separar intervalos descargables de los que son solo en vivo ---
         self.historical_intervals = ['1h', '15m', '5m', '1m']
@@ -127,6 +128,11 @@ class DataManager:
                 # --- LÓGICA DE GUARDADO EN VIVO ---
                 # Guardar siempre las velas de alta frecuencia y las demás solo cuando se cierran.
                 if kline['x'] or interval in self.streaming_only_intervals:
+                    # NUEVO: Contar velas de alta frecuencia
+                    if interval in self.streaming_only_intervals:
+                        key = f"{symbol}_{interval}"
+                        self.live_candle_counts[key] = self.live_candle_counts.get(key, 0) + 1
+
                     bar_data = {'timestamp': pd.to_datetime(kline['t'], unit='ms'), 'Open': float(kline['o']),
                                 'High': float(kline['h']), 'Low': float(kline['l']), 'Close': float(kline['c']),
                                 'Volume': float(kline['v'])}
@@ -138,6 +144,10 @@ class DataManager:
                                 {'type': 'candle_closed', 'data': {'symbol': symbol, 'interval': interval}})
         except Exception as e:
             logging.error(f"Error procesando mensaje de WebSocket: {e} - Mensaje: {msg}", exc_info=True)
+
+    def get_live_candle_count(self, symbol: str, interval: str) -> int:
+        """Devuelve el número de velas de alta frecuencia recibidas en vivo."""
+        return self.live_candle_counts.get(f"{symbol}_{interval}", 0)
 
     def start_streaming(self, command_queue, trading_mode: str):
         self.command_queue = command_queue

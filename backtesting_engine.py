@@ -4,13 +4,16 @@ import logging
 from strategy import MediumTermConfluenceStrategy, HFVWAPStrategy
 
 
+from market_state import MarketState
+
 class BacktestingEngine:
     """Motor para simular estrategias de trading en datos históricos."""
 
-    def __init__(self, config, data: pd.DataFrame, strategy_class, balance: float, trade_amount: float,
+    def __init__(self, config, db_manager, symbol: str, strategy_class, balance: float, trade_amount: float,
                  aggressiveness: int = 5):
         self.config = config
-        self.data = data
+        self.db_manager = db_manager
+        self.symbol = symbol
         self.strategy_class = strategy_class
         self.initial_balance = balance
         self.cash = balance
@@ -18,26 +21,40 @@ class BacktestingEngine:
         self.aggressiveness = aggressiveness
         self.position = {}
         self.trades = []
-        self.params = self._get_strategy_params()
+        self.strategy_intervals = self._get_strategy_intervals()
 
-    def _get_strategy_params(self):
-        """Obtiene los parámetros correctos del config para la estrategia que se está probando."""
-        if self.strategy_class == SMACrossRSIStrategy:
-            return self.config['strategy_medium_term']
-        elif self.strategy_class == ScalpingStrategy:
-            return self.config['strategy_scalping']
-        return {}
+    def _get_strategy_intervals(self):
+        if self.strategy_class == MediumTermConfluenceStrategy:
+            params = self.config['strategy_medium_term']
+            return [params['context_tf'], params['setup_tf'], params['trigger_tf']]
+        elif self.strategy_class == HFVWAPStrategy:
+            params = self.config['strategy_scalping']
+            return [params['bias_tf'], params['setup_tf'], params['trigger_tf']]
+        return []
 
     def run(self):
-        """Ejecuta la simulación vela por vela."""
-        logging.info(f"Iniciando backtest con {self.strategy_class.__name__}...")
+        logging.info(f"Iniciando backtest con {self.strategy_class.__name__} en {self.symbol}...")
 
-        # Preparar los datos con los indicadores de la estrategia
-        strategy_instance_for_indicators = self.strategy_class(self.data.copy(), self.params, self.aggressiveness)
-        self.data = strategy_instance_for_indicators.df  # El df ahora tiene las columnas de indicadores
+        # Cargar todos los datos necesarios
+        all_data = {
+            interval: self.db_manager.load_data(self.symbol, interval)
+            for interval in self.strategy_intervals
+        }
 
-        for i in range(1, len(self.data)):
-            current_price = self.data['Close'].iloc[i]
+        # El timeframe principal para la iteración será el más corto de la estrategia
+        main_tf = min(self.strategy_intervals, key=lambda x: pd.to_timedelta(x.replace('s', 'S').replace('m', 'T').replace('h', 'H')))
+        main_df = all_data[main_tf]
+
+        if main_df.empty:
+            logging.warning(f"No hay datos para el timeframe principal {main_tf}, no se puede ejecutar el backtest.")
+            return {"message": f"No hay datos para el timeframe principal {main_tf}."}
+
+        # Instancia de la estrategia para usar en el bucle
+        strategy_instance = self.strategy_class(self.config, self.aggressiveness)
+
+        for i in range(1, len(main_df)):
+            current_timestamp = main_df.index[i]
+            current_price = main_df['Close'].iloc[i]
 
             # 1. Gestionar posición abierta (Stop Loss / Take Profit)
             if self.position:
@@ -46,21 +63,28 @@ class BacktestingEngine:
                 tp_price = entry_price * (1 + self.config.getfloat('risk', 'take_profit_percentage') / 100)
 
                 if current_price <= sl_price or current_price >= tp_price:
-                    self._close_position(self.data.index[i], current_price)
+                    self._close_position(current_timestamp, current_price)
 
             # 2. Buscar nuevas entradas
             if not self.position:
-                # Usamos los datos hasta la vela ANTERIOR para decidir en la vela actual
-                historical_slice = self.data.iloc[:i]
-                strategy = self.strategy_class(historical_slice.copy(), self.params, self.aggressiveness)
-                signal = strategy.next()
+                market_state = MarketState(self.symbol)
+                for interval, df in all_data.items():
+                    # Filtrar datos hasta el momento actual
+                    df_slice = df[df.index < current_timestamp]
+                    if not df_slice.empty:
+                        market_state.update_data(interval, df_slice)
+
+                if not market_state.dataframes: continue
+
+                market_state.calculate_all_indicators(self.config)
+
+                signal, _, _ = strategy_instance.next(market_state)
 
                 if signal == 'BUY':
-                    self._open_position(self.data.index[i], current_price)
+                    self._open_position(current_timestamp, current_price)
 
-        # Si queda una posición abierta al final, la cerramos con el último precio
         if self.position:
-            self._close_position(self.data.index[-1], self.data['Close'].iloc[-1])
+            self._close_position(main_df.index[-1], main_df['Close'].iloc[-1])
 
         return self._generate_report()
 
