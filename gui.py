@@ -65,17 +65,6 @@ class TradingApp(tk.Tk):
         self.progress_bar = ttk.Progressbar(control_frame, length=150)
         self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        aggressiveness_frame = ttk.Frame(control_frame)
-        aggressiveness_frame.pack(side=tk.RIGHT, padx=20)
-        ttk.Label(aggressiveness_frame, text="Agresividad:").pack(side=tk.LEFT)
-        self.aggressiveness_slider = ttk.Scale(
-            aggressiveness_frame, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.aggressiveness,
-            command=lambda s: self.aggressiveness_label.config(text=f"{int(float(s))}")
-        )
-        self.aggressiveness_slider.pack(side=tk.LEFT, padx=5)
-        self.aggressiveness_label = ttk.Label(aggressiveness_frame, text=f"{self.aggressiveness.get()}", width=2)
-        self.aggressiveness_label.pack(side=tk.LEFT)
-
         testnet_status = "ACTIVADA" if self.use_testnet else "DESACTIVADA"
         testnet_color = "dark orange" if self.use_testnet else "gray"
         ttk.Label(control_frame, text=f"Testnet: {testnet_status}", foreground=testnet_color,
@@ -174,11 +163,26 @@ class TradingApp(tk.Tk):
         settings_tab = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(settings_tab, text="Configuración")
 
-        sizing_frame = ttk.LabelFrame(settings_tab, text="Dimensionamiento de Posición Global", padding="10")
-        sizing_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(sizing_frame, text="Máximo de Posiciones Abiertas Simultáneamente:").pack(side=tk.LEFT, padx=5)
+        # --- Frame de Configuración Global ---
+        global_config_frame = ttk.Frame(settings_tab)
+        global_config_frame.pack(fill=tk.X, pady=5)
+
+        sizing_frame = ttk.LabelFrame(global_config_frame, text="Dimensionamiento de Posición Global", padding="10")
+        sizing_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        ttk.Label(sizing_frame, text="Máximo de Posiciones Abiertas:").pack(side=tk.LEFT, padx=5)
         self.max_pos_var = tk.StringVar()
         ttk.Entry(sizing_frame, textvariable=self.max_pos_var, width=10).pack(side=tk.LEFT)
+
+        aggressiveness_frame = ttk.LabelFrame(global_config_frame, text="Nivel de Agresividad", padding="10")
+        aggressiveness_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+
+        self.aggressiveness_slider = ttk.Scale(
+            aggressiveness_frame, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.aggressiveness,
+            command=lambda s: self.aggressiveness_label.config(text=f"{int(float(s))}")
+        )
+        self.aggressiveness_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.aggressiveness_label = ttk.Label(aggressiveness_frame, text=f"{self.aggressiveness.get()}", width=2)
+        self.aggressiveness_label.pack(side=tk.LEFT)
 
         portfolio_frame = ttk.LabelFrame(settings_tab, text="Símbolos y Montos a Operar", padding="10")
         portfolio_frame.pack(fill=tk.BOTH, expand=True, pady=10)
@@ -526,6 +530,8 @@ class TradingApp(tk.Tk):
 
     def load_settings_to_ui(self):
         self.max_pos_var.set(self.config.get('position_sizing', 'max_open_positions', fallback='5'))
+        self.aggressiveness.set(self.config.getint('settings', 'aggressiveness', fallback=5))
+
         for i in self.portfolio_tree.get_children(): self.portfolio_tree.delete(i)
         if self.config.has_section('portfolio'):
             symbols = [symbol.upper() for symbol, _ in self.config.items('portfolio')]
@@ -569,7 +575,9 @@ class TradingApp(tk.Tk):
 
     def save_settings(self):
         try:
+            # Guardar configuraciones globales
             self.config.set('position_sizing', 'max_open_positions', self.max_pos_var.get())
+            self.config.set('settings', 'aggressiveness', str(self.aggressiveness.get()))
 
             # Guardar portfolio
             self.config.remove_section('portfolio')

@@ -48,10 +48,15 @@ class TradingEngine:
     def _load_strategy_config(self):
         if self.trading_mode == 'Scalping':
             strategy = HFVWAPStrategy(self.config, self.aggressiveness)
+            # Para Scalping, los intervalos ya son de alta frecuencia
             intervals = ['15m', '1m', '5s']
         else:
             strategy = MediumTermConfluenceStrategy(self.config, self.aggressiveness)
-            intervals = ['1h', '15m', '5m']
+            # Aseguramos que '1m' esté en los intervalos para Mediano Plazo para un ciclo de análisis más activo
+            base_intervals = ['1h', '15m', '5m']
+            if '1m' not in base_intervals:
+                base_intervals.append('1m')
+            intervals = base_intervals
         return strategy, intervals
 
     def _load_portfolio_state(self):

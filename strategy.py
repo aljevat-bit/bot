@@ -56,10 +56,17 @@ class MediumTermConfluenceStrategy(BaseStrategy):
         in_buy_zone = (regime == 'ALLOW_LONGS' and current_price <= ema_pullback)
         in_sell_zone = (regime == 'ALLOW_SHORTS' and current_price >= ema_pullback)
 
-        if not (in_buy_zone or in_sell_zone):
+        # Con agresividad máxima, se ignora el filtro de pullback
+        if self.aggressiveness == 10 and regime == 'ALLOW_LONGS':
+            in_buy_zone = True
+            reason = f"Paso 2/3: En zona de retroceso (ignorado por agresividad máxima)."
+        elif self.aggressiveness == 10 and regime == 'ALLOW_SHORTS':
+            in_sell_zone = True
+            reason = f"Paso 2/3: En zona de retroceso (ignorado por agresividad máxima)."
+        elif not (in_buy_zone or in_sell_zone):
             return 'HOLD', progress, "Precio fuera de la zona de retroceso en 15m."
-
-        reason = f"Paso 2/3: Precio en zona de retroceso en {setup_tf}."
+        else:
+            reason = f"Paso 2/3: Precio en zona de retroceso en {setup_tf}."
         progress = 66
 
         # --- Fase 3: Disparador de Entrada (RSI en 5m) ---
@@ -68,8 +75,9 @@ class MediumTermConfluenceStrategy(BaseStrategy):
             return 'HOLD', progress, f"Faltan datos de disparo en {trigger_tf}"
 
         rsi = state.indicators[trigger_tf]['RSI'].iloc[-1]
-        rsi_oversold = int(params['rsi_oversold']) - self.aggressiveness
-        rsi_overbought = int(params['rsi_overbought']) + self.aggressiveness
+        # Lógica de agresividad corregida: un valor más alto facilita el trade
+        rsi_oversold = int(params['rsi_oversold']) + self.aggressiveness
+        rsi_overbought = int(params['rsi_overbought']) - self.aggressiveness
 
         if in_buy_zone and rsi < rsi_oversold:
             reason = f"Paso 3/3: RSI sobrevendido ({rsi:.1f} < {rsi_oversold}) en {trigger_tf}."
