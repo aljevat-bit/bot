@@ -151,6 +151,7 @@ class DataManager:
 
     def start_streaming(self, command_queue, trading_mode: str):
         self.command_queue = command_queue
+        self.live_candle_counts = {}  # Resetear el contador
         logging.info("Iniciando el gestor de WebSockets...")
 
         # Suscribirse a TODOS los intervalos para tener los datos disponibles para cualquier modo

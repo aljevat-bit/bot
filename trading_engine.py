@@ -203,18 +203,20 @@ class TradingEngine:
         self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} SEÑAL: {signal} ({progress}%) - {reason}"})
 
         trade_amount = self.portfolio_config.get(symbol.upper())
-        if signal in ['BUY', 'SELL'] and trade_amount and trade_amount > 0:
+        if signal == 'BUY' and trade_amount and trade_amount > 0:
             current_price = self.live_prices.get(symbol)
             if current_price:
                 self.ui_queue.put(
-                    {'type': 'log', 'data': f"{log_prefix} CONCLUSIÓN: La señal es COMPRAR. ABRIENDO POSICIÓN."})
+                    {'type': 'log', 'data': f"{log_prefix} CONCLUSIÓN: La señal es COMPRAR. Abriendo posición."})
                 self._open_position(symbol, current_price, trade_amount)
                 self.bot_states[symbol] = 'IN_POSITION'
             else:
                 self.ui_queue.put({'type': 'log',
                                    'data': f"{log_prefix} CONCLUSIÓN: Señal de COMPRA, pero sin precio en vivo para ejecutar."})
+        elif signal == 'SELL':
+            self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} CONCLUSIÓN: Señal de VENTA ignorada (Shorting no implementado)."})
         else:
-            self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} CONCLUSIÓN: Sin acción de compra."})
+            self.ui_queue.put({'type': 'log', 'data': f"{log_prefix} CONCLUSIÓN: Sin acción."})
 
     def _open_position(self, symbol, entry_price, trade_amount):
         if self.portfolio['cash'] < trade_amount:
