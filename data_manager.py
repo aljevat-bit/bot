@@ -126,22 +126,24 @@ class DataManager:
                     self.command_queue.put({'type': 'price_update', 'data': {symbol: current_price}})
 
                 # --- LÓGICA DE GUARDADO EN VIVO ---
-                # Guardar siempre las velas de alta frecuencia y las demás solo cuando se cierran.
+                # Guardar siempre los ticks de alta frecuencia, pero solo contar/notificar en el cierre.
                 if kline['x'] or interval in self.streaming_only_intervals:
-                    # NUEVO: Contar velas de alta frecuencia
-                    if interval in self.streaming_only_intervals:
-                        key = f"{symbol}_{interval}"
-                        self.live_candle_counts[key] = self.live_candle_counts.get(key, 0) + 1
-
                     bar_data = {'timestamp': pd.to_datetime(kline['t'], unit='ms'), 'Open': float(kline['o']),
                                 'High': float(kline['h']), 'Low': float(kline['l']), 'Close': float(kline['c']),
                                 'Volume': float(kline['v'])}
                     self.db_manager.save_dataframe(pd.DataFrame([bar_data]), symbol, interval)
 
-                    if kline['x']:  # Solo enviar evento de vela cerrada para las velas de baja frecuencia
-                        if self.command_queue:
-                            self.command_queue.put(
-                                {'type': 'candle_closed', 'data': {'symbol': symbol, 'interval': interval}})
+                # --- LÓGICA DE EVENTOS EN CIERRE DE VELA ---
+                if kline['x']:
+                    # Contar solo las velas de alta frecuencia cerradas
+                    if interval in self.streaming_only_intervals:
+                        key = f"{symbol}_{interval}"
+                        self.live_candle_counts[key] = self.live_candle_counts.get(key, 0) + 1
+
+                    # Enviar evento de vela cerrada para todos los intervalos
+                    if self.command_queue:
+                        self.command_queue.put(
+                            {'type': 'candle_closed', 'data': {'symbol': symbol, 'interval': interval}})
         except Exception as e:
             logging.error(f"Error procesando mensaje de WebSocket: {e} - Mensaje: {msg}", exc_info=True)
 
